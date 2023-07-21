@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <title>SphincterOS Web Display</title>
+  <link rel="stylesheet" href="style.css">
+
+</head>
+
+<body>
+  <h1>SphincterOS Web Display</h1>
+  <div class="container">
+    <div class="hide-if-connected">
+      <h2>Connection</h2>
+      <div>
+        <button class="button" onclick="startScan()">Connect via Bluetooth</button>
+      </div>
+    </div>
+    <div class="column large">
+      <div class="chart-container display-if-connected">
+        <canvas id="myChart"></canvas>
+      </div>
+    </div>
+    <div class="column small">
+
+      <div class="display-if-connected">
+      <h2>Live data</h2>
+      Pressure: <span id="pressureValue">not connected</span><br />
+      Battery: <span id="batteryValue">loading ...</span><br />
+      Refresh Rate: <span id="refreshRateValue">not calculated</span><br />
+      <h2>Peripherals</h2>
+      <div>
+        <button class="button" onclick="connectPeripheral()">Connect Peripheral</button>
+        <button class="button" onclick="disconnectPeripheral()">Disconnect Peripheral</button>
+      </div>
+      <h2>Sessions</h2>
+      <div>
+        <button class="button" onclick="startSession()">Start Session</button>
+        <button class="button" onclick="stopSession()">Stop Session</button>
+      </div>
+      <h2>Smoothing Algorithm</h2>
+      <div>
+        <button class=button onclick="setSmoothingAlgorithmNone()">None</button>
+        <h3>Moving Average</h3>
+        <button class=button onclick="setSmoothingAlgorithmMovingAverage5()">5</button>
+        <button class=button onclick="setSmoothingAlgorithmMovingAverage10()">10</button>
+        <button class=button onclick="setSmoothingAlgorithmMovingAverage20()">20</button>
+        <button class=button onclick="setSmoothingAlgorithmMovingAverage50()">50</button>
+        <h3>Exponential Moving Average</h3>
+        <button class=button onclick="setSmoothingAlgorithmExponentialMovingAverage01()">0.1</button>
+        <button class=button onclick="setSmoothingAlgorithmExponentialMovingAverage02()">0.2</button>
+        <button class=button onclick="setSmoothingAlgorithmExponentialMovingAverage05()">0.5</button>
+        <button class=button onclick="setSmoothingAlgorithmExponentialMovingAverage08()">0.8</button>
+      </div>
+      <h2>Calibration</h2>
+      <div>
+        <button class="button" onclick="resetLimits()">Tare</button>
+        <button class="button" onclick="setUpperLimit()">Upper limit</button>
+        <button class="button" onclick="setLowerLimit()">Lower limit</button>
+      </div>
+      <h2>Settings</h2>
+      <div>
+        <input type="text" value="" id="wifi_ssid"><button class="button" onclick="setWifiSSID()">Set Wifi SSID</button><br/>
+        <input type="text" value="" id="wifi_password"><button class="button" onclick="setWifiPassword()">Set Wifi Password</button><br/>
+        <input type="text" value="" id="git_pusher_server"><button class="button" onclick="setGitPusherServer()">Set Git server</button><br/>
+        <input type="text" value="" id="git_pusher_repository"><button class="button" onclick="setGitPusherRepository()">Set Git Pepository</button><br/>
+        <input type="text" value="" id="git_pusher_http_password"><button class="button" onclick="setGitPusherHttpPassword()">Set Git Password</button><br/>
+        <input type="text" value="" id="git_pusher_http_username"><button class="button" onclick="setGitPusherHttpUsername()">Set Git Username</button><br/>
+        <input type="text" value="" id="git_pusher_author_name"><button class="button" onclick="setGitPusherAuthorName()">Set Git Author Name</button><br/>
+        <input type="text" value="" id="git_pusher_author_email"><button class="button" onclick="setGitPusherAuthorEmail()">Set Git Author Email</button><br/>
+        <input type="text" value="" id="git_pusher_commit_message"><button class="button" onclick="setGitPusherCommitMessage()">Set Git Commit Message</button><br/>
+      </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.2.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/moment@2.29.4/moment.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.0/dist/chartjs-adapter-moment.min.js"></script>
+  <script src="web_bluetooth_client.js"></script>
