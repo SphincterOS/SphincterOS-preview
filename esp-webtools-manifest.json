@@ -1,13 +1,13 @@
 {
   "name": "SphincterOS/SphincterOS",
-  "version": "0.0.31",
+  "version": "0.0.32",
   "funding_url": "https://github.com/SphincterOS/SphincterOS/contributors",
   "builds": [
     {
       "chipFamily": "ESP32-S3",
       "parts": [
         {
-          "path": "firmware/SphincterOS_SphincterOS_esp32s3_b31.bin",
+          "path": "firmware/SphincterOS_SphincterOS_esp32s3_b32.bin",
           "offset": 0
         }
       ]

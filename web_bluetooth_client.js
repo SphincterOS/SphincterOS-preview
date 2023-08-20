@@ -16,80 +16,57 @@ let userEventsCharacteristic;
 // const timeWindow = 5 * 60 * 1000; // 5 minutes in milliseconds
 const timeWindow = 10 * 1000;
 
-// Define the user event protocol commands
-const UserEventProtocolCommand = {
-    CMD_START_SESSION: 0x01,
-    CMD_STOP_SESSION: 0x02,
-    CMD_SET_LOWER_LIMIT: 0x03,
-    CMD_SET_UPPER_LIMIT: 0x04,
-    CMD_RESET_LIMITS: 0x05,
-    CMD_SET_SMOOTHING_ALGORITHM_NONE: 0x06,
-    CMD_SET_SMOOTHING_ALGORITHM_MOVING_AVERAGE_5: 0x07,
-    CMD_SET_SMOOTHING_ALGORITHM_MOVING_AVERAGE_10: 0x08,
-    CMD_SET_SMOOTHING_ALGORITHM_MOVING_AVERAGE_20: 0x09,
-    CMD_SET_SMOOTHING_ALGORITHM_MOVING_AVERAGE_50: 0x0A,
-    CMD_SET_SMOOTHING_ALGORITHM_EXPONENTIAL_MOVING_AVERAGE_0_1: 0x0B,
-    CMD_SET_SMOOTHING_ALGORITHM_EXPONENTIAL_MOVING_AVERAGE_0_2: 0x0C,
-    CMD_SET_SMOOTHING_ALGORITHM_EXPONENTIAL_MOVING_AVERAGE_0_5: 0x0D,
-    CMD_SET_SMOOTHING_ALGORITHM_EXPONENTIAL_MOVING_AVERAGE_0_8: 0x0E,
-    CMD_CONNECT_PERIPHERAL: 0x0F,
-    CMD_DISCONNECT_PERIPHERAL: 0x10,
-    CMD_SETTINGS_SAVE: 0x11,
-};
-
-// Define the user settings keys
-const UserSettingsKey = {
-    WIFI_SSID: 1,
-    WIFI_PASSWORD: 2,
-    GIT_PUSHER_SERVER: 3,
-    GIT_PUSHER_REPOSITORY: 4,
-    GIT_PUSHER_HTTP_PASSWORD: 5,
-    GIT_PUSHER_HTTP_USERNAME: 6,
-    GIT_PUSHER_AUTHOR_NAME: 7,
-    GIT_PUSHER_AUTHOR_EMAIL: 8,
-    GIT_PUSHER_COMMIT_MESSAGE: 9,
-};
-
 // Function to start scanning for Bluetooth devices
 async function startScan() {
+    device = await navigator.bluetooth.requestDevice({
+        filters: [{
+            services: [PRESSURE_SERVICE_UUID],
+        }],
+        optionalServices: [USER_EVENTS_SERVICE_UUID],
+    });
+    console.log('Found device: ', device);
+    connectToDevice(device);
+}
+
+async function connectToDevice(device) {
     const container = document.querySelector('.container');
 
-    try {
-        device = await navigator.bluetooth.requestDevice({
-            filters: [{ services: [PRESSURE_SERVICE_UUID] }],
-        });
-        console.log('Found device: ' + device.name);
+    const server = await device.gatt.connect();
+    console.log('Connected to GATT server');
 
-        const server = await device.gatt.connect();
-        console.log('Connected to GATT server');
+    container.classList.add('connected');
+    device.addEventListener('gattserverdisconnected', () => {
+        console.log('Disconnected from GATT server');
+        container.classList.remove('connected');
+    });
 
-        container.classList.add('connected');
-        device.addEventListener('gattserverdisconnected', () => {
-            console.log('Disconnected from GATT server');
-            container.classList.remove('connected');
-        });
+    const pressureService = await server.getPrimaryService(PRESSURE_SERVICE_UUID);
+    pressureCharacteristic = await pressureService.getCharacteristic(PRESSURE_CHARACTERISTIC_UUID);
+    console.log('Found service: ' + pressureService.uuid);
 
-        const pressureService = await server.getPrimaryService(PRESSURE_SERVICE_UUID);
-        pressureCharacteristic = await pressureService.getCharacteristic(PRESSURE_CHARACTERISTIC_UUID);
-        console.log('Found service: ' + pressureService.uuid);
+    // Subscribe to pressure data notifications
+    pressureCharacteristic.addEventListener('characteristicvaluechanged', handlePressureData);
+    await pressureCharacteristic.startNotifications();
 
-        // Subscribe to pressure data notifications
-        pressureCharacteristic.addEventListener('characteristicvaluechanged', handlePressureData);
-        await pressureCharacteristic.startNotifications();
+    // Subscribe to user events
+    const userEventsService = await server.getPrimaryService(USER_EVENTS_SERVICE_UUID);
+    userEventsCharacteristic = await userEventsService.getCharacteristic(USER_EVENTS_CHARACTERISTIC_UUID);
+    userEventsCharacteristic.addEventListener('characteristicvaluechanged', async (event) => {
+        console.log("valuechanged!", event);
+        console.log("value!", event.target.value);
+        console.log("string!", new TextDecoder().decode(event.target.value));
+        console.log("string!", new TextDecoder().decode(event.target.value));
 
-        // Subscribe to user events
-        const userEventsService = await server.getPrimaryService(USER_EVENTS_SERVICE_UUID);
-        const userEventsCharacteristic = await userEventsService.getCharacteristic(USER_EVENTS_CHARACTERISTIC_UUID);
-        userEventsCharacteristic.addEventListener('characteristicvaluechanged', (args) => {
-            console.log(args);
-        });
+        handle_user_events_response(new TextDecoder().decode(event.target.value));
+    });
+    await userEventsCharacteristic.startNotifications();
 
-        // Subscribe to battery level notifications
-        // batteryLevelCharacteristic.addEventListener('characteristicvaluechanged', handleBatteryLevel);
-        // await batteryLevelCharacteristic.startNotifications();
-    } catch (error) {
-        console.log('Error: ' + error);
-    }
+    // Load all user settings after successful connection
+    await loadAllUserSettings();
+
+    // Subscribe to battery level notifications
+    // batteryLevelCharacteristic.addEventListener('characteristicvaluechanged', handleBatteryLevel);
+    // await batteryLevelCharacteristic.startNotifications();
 }
 
 const ctx = document.getElementById('myChart').getContext('2d');
@@ -102,17 +79,17 @@ const chart = new Chart(ctx, {
             data: [],
             borderWidth: 1,
             pointRadius: 0
-        },{
+        }, {
             label: 'Raw Pressure',
             data: [],
             borderWidth: 1,
             pointRadius: 0
-        },{
+        }, {
             label: 'Range',
             data: [],
             borderWidth: 1,
             pointRadius: 0
-        },{
+        }, {
             label: 'Range adjusted pressure',
             data: [],
             borderWidth: 1,
@@ -237,13 +214,6 @@ function updateChart() {
 
     const currentTime = Date.now();
 
-    // Remove data points older than the time window
-    console.log(currentTime, chart.data.labels[0], currentTime - chart.data.labels[0], timeWindow);
-
-    if (!chart.data.labels[0]) {
-        debugger
-    }
-
     while (
         (
             chart.data.labels.length > 0 &&
@@ -255,10 +225,7 @@ function updateChart() {
         chart.data.datasets[1].data.shift();
         chart.data.datasets[2].data.shift();
         chart.data.datasets[3].data.shift();
-        console.log('removed a datapoint')
     }
-
-    console.log(chart.data.labels.length + ' datapoints');
 
     chart.options.scales.x.min = moment().subtract(timeWindow, 'millisecond').toDate();
     chart.options.scales.x.max = moment().toDate();
@@ -286,16 +253,12 @@ function handleBatteryLevel(event) {
     console.log('Received battery level: ' + batteryLevel);
     batteryLevelValue.innerText = batteryLevel + '%';
 }
-
-// Function to handle user event commands
-async function handleUserEventCommandSimple(command) {
-    handleUserEventCommand(new Uint8Array([command]));
-}
-
 async function handleUserEventCommand(command) {
     try {
-        await userEventsCharacteristic.writeValue(command);
-        console.log('Sent user event command: ' + command);
+
+        const commandArrayBuffer = new TextEncoder("utf-8").encode(command);
+        console.log('Sending user event command: ' + command);
+        await userEventsCharacteristic.writeValue(commandArrayBuffer);
     } catch (error) {
         console.log('Error sending user event command: ' + error);
     }
@@ -303,128 +266,294 @@ async function handleUserEventCommand(command) {
 
 // Function to set the smoothing algorithm to none
 async function setSmoothingAlgorithmNone() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_SET_SMOOTHING_ALGORITHM_NONE);
+    await handleUserEventCommand('POST /smoothing_algorithm none');
 }
 
 // Function to set the smoothing algorithm to moving average 5
 async function setSmoothingAlgorithmMovingAverage5() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_SET_SMOOTHING_ALGORITHM_MOVING_AVERAGE_5);
+    await handleUserEventCommand('POST /smoothing_algorithm moving_average 5');
 }
 
 // Function to set the smoothing algorithm to moving average 10
 async function setSmoothingAlgorithmMovingAverage10() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_SET_SMOOTHING_ALGORITHM_MOVING_AVERAGE_10);
+    await handleUserEventCommand('POST /smoothing_algorithm moving_average 10');
 }
 
 // Function to set the smoothing algorithm to moving average 20
 async function setSmoothingAlgorithmMovingAverage20() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_SET_SMOOTHING_ALGORITHM_MOVING_AVERAGE_20);
+    await handleUserEventCommand('POST /smoothing_algorithm moving_average 20');
 }
 
 // Function to set the smoothing algorithm to moving average 50
 async function setSmoothingAlgorithmMovingAverage50() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_SET_SMOOTHING_ALGORITHM_MOVING_AVERAGE_50);
+    await handleUserEventCommand('POST /smoothing_algorithm moving_average 50');
 }
 
 // Function to set the smoothing algorithm to exponential moving average 0.1
 async function setSmoothingAlgorithmExponentialMovingAverage01() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_SET_SMOOTHING_ALGORITHM_EXPONENTIAL_MOVING_AVERAGE_0_1);
+    await handleUserEventCommand('POST /smoothing_algorithm exponential_moving_average 10');
 }
 
 // Function to set the smoothing algorithm to exponential moving average 0.2
 async function setSmoothingAlgorithmExponentialMovingAverage02() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_SET_SMOOTHING_ALGORITHM_EXPONENTIAL_MOVING_AVERAGE_0_2);
+    await handleUserEventCommand('POST /smoothing_algorithm exponential_moving_average 20');
 }
 
 // Function to set the smoothing algorithm to exponential moving average 0.5
 async function setSmoothingAlgorithmExponentialMovingAverage05() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_SET_SMOOTHING_ALGORITHM_EXPONENTIAL_MOVING_AVERAGE_0_5);
+    await handleUserEventCommand('POST /smoothing_algorithm exponential_moving_average 50');
 }
 
 // Function to set the smoothing algorithm to exponential moving average 0.8
 async function setSmoothingAlgorithmExponentialMovingAverage08() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_SET_SMOOTHING_ALGORITHM_EXPONENTIAL_MOVING_AVERAGE_0_8);
+    await handleUserEventCommand('POST /smoothing_algorithm exponential_moving_average 80');
 }
 
 // Function to start a new session
 async function startSession() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_START_SESSION);
+    await handleUserEventCommand('POST /start_session');
 }
 
 // Function to stop the current session
 async function stopSession() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_STOP_SESSION);
+    await handleUserEventCommand('POST /stop_session');
 }
 
 // Function to set the lower limit for pressure data
 async function setLowerLimit() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_SET_LOWER_LIMIT);
+    await handleUserEventCommand('POST /lower_limit');
 }
 
 // Function to set the upper limit for pressure data
 async function setUpperLimit() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_SET_UPPER_LIMIT);
+    await handleUserEventCommand('POST /upper_limit');
 }
 
 // Function to reset the lower and upper limits for pressure data
 async function resetLimits() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_RESET_LIMITS);
+    await handleUserEventCommand('POST /reset_limits');
 }
 
+// Function to connect to a peripheral
 async function connectPeripheral() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_CONNECT_PERIPHERAL);
+    await handleUserEventCommand('POST /connect_peripheral');
 }
 
+// Function to disconnect from a peripheral
 async function disconnectPeripheral() {
-    await handleUserEventCommandSimple(UserEventProtocolCommand.CMD_DISCONNECT_PERIPHERAL);
+    await handleUserEventCommand('POST /disconnect_peripheral');
 }
 
-async function saveUserSetting(domId, userSettingKey) {
-    const value = new TextEncoder("utf-8").encode(
-        document.getElementById(domId).value
-    );
+async function saveUserSetting(userSettingKey) {
+    const value = document.getElementById(userSettingKey).value
 
-    const command = new Uint8Array([
-        UserEventProtocolCommand.CMD_SETTINGS_SAVE,
-        userSettingKey,
-        ...value
-    ])
+    const command = `POST /settings ${userSettingKey} ${value}`;
 
     await handleUserEventCommand(command);
 }
 
+async function loadUserSetting(userSettingKey) {
+    const command = `GET /settings ${userSettingKey}`;
+
+    return await handleUserEventCommand(command);
+}
+
 async function setWifiSSID() {
-    await saveUserSetting("wifi_ssid", UserSettingsKey.WIFI_SSID);
+    await saveUserSetting("wifi_ssid");
+}
+async function getWifiPassword() {
+    await loadUserSetting("wifi_password");
+}
+
+async function getGitPusherServer() {
+    await loadUserSetting("git_pusher_server");
+}
+
+async function getGitPusherRepository() {
+    await loadUserSetting("git_pusher_repository");
+}
+
+async function getGitPusherHttpPassword() {
+    await loadUserSetting("git_pusher_http_password");
+}
+
+async function getGitPusherHttpUsername() {
+    await loadUserSetting("git_pusher_http_username");
+}
+
+async function getGitPusherAuthorName() {
+    await loadUserSetting("git_pusher_author_name");
+}
+
+async function getGitPusherAuthorEmail() {
+    await loadUserSetting("git_pusher_author_email");
+}
+
+async function getGitPusherCommitMessage() {
+    await loadUserSetting("git_pusher_commit_message");
+}
+
+async function loadAllUserSettings() {
+    await getWifiSSID();
+    await getWifiPassword();
+    await getGitPusherServer();
+    await getGitPusherRepository();
+    await getGitPusherHttpPassword();
+    await getGitPusherHttpUsername();
+    await getGitPusherAuthorName();
+    await getGitPusherAuthorEmail();
+    await getGitPusherCommitMessage();
+}
+
+
+async function getWifiSSID() {
+    await loadUserSetting("wifi_ssid");
 }
 
 async function setWifiPassword() {
-    await saveUserSetting("wifi_password", UserSettingsKey.WIFI_PASSWORD);
+    await saveUserSetting("wifi_password");
 }
 
 async function setGitPusherServer() {
-    await saveUserSetting("git_pusher_server", UserSettingsKey.GIT_PUSHER_SERVER);
+    await saveUserSetting("git_pusher_server");
 }
 
 async function setGitPusherRepository() {
-    await saveUserSetting("git_pusher_repository", UserSettingsKey.GIT_PUSHER_REPOSITORY);
+    await saveUserSetting("git_pusher_repository");
 }
 
 async function setGitPusherHttpPassword() {
-    await saveUserSetting("git_pusher_http_password", UserSettingsKey.GIT_PUSHER_HTTP_PASSWORD);
+    await saveUserSetting("git_pusher_http_password");
 }
 
 async function setGitPusherHttpUsername() {
-    await saveUserSetting("git_pusher_http_username", UserSettingsKey.GIT_PUSHER_HTTP_USERNAME);
+    await saveUserSetting("git_pusher_http_username");
 }
 
 async function setGitPusherAuthorName() {
-    await saveUserSetting("git_pusher_author_name", UserSettingsKey.GIT_PUSHER_AUTHOR_NAME);
+    await saveUserSetting("git_pusher_author_name");
 }
 
 async function setGitPusherAuthorEmail() {
-    await saveUserSetting("git_pusher_author_email", UserSettingsKey.GIT_PUSHER_AUTHOR_EMAIL);
+    await saveUserSetting("git_pusher_author_email");
 }
 
 async function setGitPusherCommitMessage() {
-    await saveUserSetting("git_pusher_commit_message", UserSettingsKey.GIT_PUSHER_COMMIT_MESSAGE);
+    await saveUserSetting("git_pusher_commit_message");
+}
+
+
+function handle_user_events_response(response) {
+    const [statusCode, commandName, ...params] = response.split(' ');
+
+
+    switch (statusCode) {
+        case '200':
+            handleSuccessResponse(commandName, params);
+            break;
+        case '400':
+            handleErrorResponse(commandName, 'Bad Request', params);
+            break;
+        case '405':
+            handleErrorResponse(commandName, 'Method Not Allowed', params);
+            break;
+        // Handle other status codes if needed
+        default:
+            console.log('Unknown status code:', statusCode);
+            break;
+    }
+}
+
+function handleSuccessResponse(commandName, params) {
+    switch (commandName) {
+        case '/start_session':
+            handleStartSessionResponse(params);
+            break;
+        case '/smoothing_algorithm':
+            handleSmoothingAlgorithmResponse(params);
+            break;
+        case '/stop_session':
+            handleStopSessionResponse(params);
+            break;
+        case '/lower_limit':
+            handleLowerLimitResponse(params);
+            break;
+        case '/upper_limit':
+            handleUpperLimitResponse(params);
+            break;
+        case '/reset_limits':
+            handleResetLimitsResponse(params);
+            break;
+        case '/connect_peripherals':
+            handleConnectPeripheralsResponse(params);
+            break;
+        case '/disconnect_peripherals':
+            handleDisconnectPeripheralsResponse(params);
+            break;
+        case '/settings':
+            handleSettingsResponse(params);
+            break;
+        default:
+            console.log('Unhandled success response for command:', commandName);
+            break;
+    }
+}
+
+// Implement handler functions for other commands
+function handleStartSessionResponse(params) {
+    console.log('Start session response:', params);
+    // Implement your logic for handling the start session response
+}
+
+function handleSmoothingAlgorithmResponse(params) {
+    const [algorithmType, parameter] = params;
+    console.log('Smoothing algorithm response:', algorithmType, parameter);
+    // Implement your logic for handling the smoothing algorithm response
+}
+
+// Implement handler functions for other commands
+
+function handleStopSessionResponse(params) {
+    console.log('Stop session response:', params);
+    // Implement your logic for handling the stop session response
+}
+
+function handleLowerLimitResponse(params) {
+    console.log('Lower limit response:', params);
+    // Implement your logic for handling the lower limit response
+}
+
+function handleUpperLimitResponse(params) {
+    console.log('Upper limit response:', params);
+    // Implement your logic for handling the upper limit response
+}
+
+function handleResetLimitsResponse(params) {
+    console.log('Reset limits response:', params);
+    // Implement your logic for handling the reset limits response
+}
+
+function handleConnectPeripheralsResponse(params) {
+    console.log('Connect peripherals response:', params);
+    // Implement your logic for handling the connect peripherals response
+}
+
+function handleDisconnectPeripheralsResponse(params) {
+    console.log('Disconnect peripherals response:', params);
+    // Implement your logic for handling the disconnect peripherals response
+}
+
+function handleSettingsResponse(params) {
+    const [key, value] = params;
+    console.log('Settings response:', key, value);
+
+    document.getElementById(key).value = value;
+}
+
+// Implement error handler function
+function handleErrorResponse(commandName, errorMessage, params) {
+    console.log('Error response for command:', commandName);
+    console.log('Error message:', errorMessage);
+    console.log('Response parameters:', params);
+    // Implement your error handling logic
 }
